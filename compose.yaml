@@ -1,0 +1,14 @@
+services:
+  server:
+    build:
+      context: .
+      target: builder
+      dockerfile: ./Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/go/src/github.com/yyh-gl/wedding-pictures
+    working_dir: /go/src/github.com/yyh-gl/wedding-pictures
+    command: [ "sh", "-c", "air -c .air.toml" ]
+    env_file:
+      - .env
