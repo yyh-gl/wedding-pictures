@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -46,13 +47,22 @@ func main() {
 			return
 		}
 
+		// Log the entire request body
+		if reqBodyJSON, err := json.MarshalIndent(reqBody, "", "  "); err == nil {
+			log.Printf("Received webhook request:\n%s", string(reqBodyJSON))
+		} else {
+			log.Printf("Received webhook request (JSON marshal failed): %+v", reqBody)
+		}
+
 		for _, ev := range reqBody.Events {
+			log.Printf("Processing event type: %T", ev)
 			switch e := ev.(type) {
 			case *webhook.MessageEvent:
+				log.Printf("MessageEvent - Type: %s, ReplyToken: %s", e.Type, e.ReplyToken)
 				// Only handle text message events
 				switch msg := e.Message.(type) {
 				case *webhook.TextMessageContent:
-					_ = msg // we don't check content; always reply "hello"
+					log.Printf("TextMessage - ID: %s, Text: %s", msg.Id, msg.Text)
 					_, err := client.ReplyMessage(&messaging_api.ReplyMessageRequest{
 						ReplyToken: e.ReplyToken,
 						Messages: []messaging_api.MessageInterface{
