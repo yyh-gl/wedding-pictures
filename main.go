@@ -57,17 +57,17 @@ func main() {
 		for _, ev := range reqBody.Events {
 			log.Printf("Processing event type: %T", ev)
 			switch e := ev.(type) {
-			case *webhook.MessageEvent:
+			case webhook.MessageEvent:
 				log.Printf("MessageEvent - Type: %s, ReplyToken: %s", e.Type, e.ReplyToken)
 				// Only handle text message events
 				switch msg := e.Message.(type) {
-				case *webhook.TextMessageContent:
+				case webhook.TextMessageContent:
 					log.Printf("TextMessage - ID: %s, Text: %s", msg.Id, msg.Text)
 					_, err := client.ReplyMessage(&messaging_api.ReplyMessageRequest{
 						ReplyToken: e.ReplyToken,
 						Messages: []messaging_api.MessageInterface{
 							&messaging_api.TextMessage{
-								Text: "hello",
+								Text: msg.Text,
 							},
 						},
 					})
