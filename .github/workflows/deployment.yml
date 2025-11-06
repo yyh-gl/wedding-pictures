@@ -111,7 +111,8 @@ jobs:
           REF: ${{ github.ref }}
         run: echo "VERSION=${REF##*/}" >> $GITHUB_ENV
       - name: Set TAG environment
-        run: echo "TAG=${{ secrets.CONTAINER_REGISTORY }}/${{ github.repository }}/server:${{ env.VERSION }}" >> $GITHUB_ENV
+#        run: echo "TAG=${{ secrets.CONTAINER_REGISTORY }}/${{ github.repository }}/server:${{ env.VERSION }}" >> $GITHUB_ENV
+        run: echo "TAG=${{ secrets.CONTAINER_REGISTORY }}/${{ github.repository }}/server:$latest" >> $GITHUB_ENV
       - name: Set Tailscale
         uses: tailscale/github-action@v3
         with:
