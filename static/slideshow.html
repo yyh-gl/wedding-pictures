@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wedding Pictures Slideshow</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+
+        #slideshow-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #carousel {
+            display: flex;
+            align-items: center;
+            gap: 30px;
+            transition: transform 0.8s ease-in-out;
+        }
+
+        .slide-card {
+            position: relative;
+            flex-shrink: 0;
+            width: 400px;
+            height: 600px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.8s ease-in-out, opacity 0.8s ease-in-out;
+            transform-origin: center;
+        }
+
+        .slide-card img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(255, 255, 255, 0.1);
+        }
+
+        .slide-card.dropping {
+            animation: dropIn 1.5s ease-out forwards;
+        }
+
+        @keyframes dropIn {
+            0% {
+                transform: translateY(-150vh) scale(0.5) rotate(15deg);
+                opacity: 0;
+            }
+            60% {
+                transform: translateY(20px) scale(1.05) rotate(-5deg);
+                opacity: 1;
+            }
+            80% {
+                transform: translateY(-10px) scale(0.98) rotate(2deg);
+            }
+            100% {
+                transform: translateY(0) scale(1) rotate(0deg);
+                opacity: 1;
+            }
+        }
+
+
+        #status {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 14px;
+            z-index: 1000;
+        }
+
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 24px;
+            z-index: 1000;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Loading...</div>
+    <div id="loading">画像を読み込んでいます...</div>
+    <div id="slideshow-container">
+        <div id="carousel"></div>
+    </div>
+
+    <script>
+        class CarouselSlideshow {
+            constructor() {
+                this.container = document.getElementById('slideshow-container');
+                this.carousel = document.getElementById('carousel');
+                this.statusEl = document.getElementById('status');
+                this.loadingEl = document.getElementById('loading');
+                this.images = [];
+                this.displayedImageIds = new Set();
+                this.scrollInterval = 3000; // Scroll every 3 seconds
+                this.fetchInterval = 10000; // Check for new images every 10 seconds
+                this.isPlaying = false;
+                this.visibleCount = 3; // Number of images visible at once
+            }
+
+            async init() {
+                await this.fetchImages();
+                if (this.images.length > 0) {
+                    this.loadingEl.classList.add('hidden');
+                    this.renderCarousel();
+                    this.startAutoScroll();
+                    // Periodically check for new images
+                    setInterval(() => this.checkForNewImages(), this.fetchInterval);
+                } else {
+                    this.statusEl.textContent = '画像がありません';
+                    setTimeout(() => this.init(), this.fetchInterval);
+                }
+            }
+
+            async fetchImages() {
+                try {
+                    const response = await fetch('/api/images');
+                    if (!response.ok) {
+                        throw new Error('Failed to fetch images');
+                    }
+                    const newImages = await response.json();
+
+                    if (newImages && newImages.length > 0) {
+                        this.images = newImages;
+                        this.statusEl.textContent = `${this.images.length}枚の画像`;
+                        return true;
+                    }
+                    return false;
+                } catch (error) {
+                    console.error('Error fetching images:', error);
+                    this.statusEl.textContent = 'エラーが発生しました';
+                    return false;
+                }
+            }
+
+            async checkForNewImages() {
+                try {
+                    const response = await fetch('/api/images');
+                    if (!response.ok) return;
+
+                    const fetchedImages = await response.json();
+                    if (!fetchedImages || fetchedImages.length === 0) return;
+
+                    // Find truly new images (not displayed and not in current carousel)
+                    const newImages = fetchedImages.filter(img =>
+                        img.is_new && !this.displayedImageIds.has(img.id)
+                    );
+
+                    if (newImages.length > 0) {
+                        console.log(`Found ${newImages.length} new images`);
+                        for (const newImage of newImages) {
+                            await this.addNewImageWithDrop(newImage);
+                            // Wait a bit between drops if multiple new images
+                            if (newImages.length > 1) {
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                            }
+                        }
+                        this.statusEl.textContent = `${fetchedImages.length}枚の画像`;
+                    }
+                } catch (error) {
+                    console.error('Error checking for new images:', error);
+                }
+            }
+
+            createSlideCard(imageData) {
+                const card = document.createElement('div');
+                card.className = 'slide-card';
+                card.dataset.imageId = imageData.id;
+
+                const img = document.createElement('img');
+                img.src = imageData.file_url;
+                img.alt = 'Wedding Picture';
+
+                card.appendChild(img);
+
+                return card;
+            }
+
+            renderCarousel() {
+                this.carousel.innerHTML = '';
+
+                // Render only is_new=false images
+                this.images.filter(img => !img.is_new).forEach(imageData => {
+                    const card = this.createSlideCard(imageData);
+                    this.carousel.appendChild(card);
+                });
+
+                this.updateCardScales();
+            }
+
+            updateCardScales() {
+                const cards = this.carousel.querySelectorAll('.slide-card');
+                const containerWidth = this.container.offsetWidth;
+                const containerCenter = containerWidth / 2;
+
+                cards.forEach(card => {
+                    const rect = card.getBoundingClientRect();
+                    const cardCenter = rect.left + rect.width / 2;
+                    const distanceFromCenter = Math.abs(cardCenter - containerCenter);
+                    const maxDistance = containerWidth / 2;
+
+                    // Calculate scale: 1.2 at center, 0.6 at edges
+                    const normalizedDistance = Math.min(distanceFromCenter / maxDistance, 1);
+                    const scale = 1.2 - (normalizedDistance * 0.6);
+
+                    // Calculate opacity: 1 at center, 0.3 at edges
+                    const opacity = 1 - (normalizedDistance * 0.7);
+
+                    card.style.transform = `scale(${scale})`;
+                    card.style.opacity = opacity;
+                });
+            }
+
+            async addNewImageWithDrop(imageData) {
+                // Add to images array
+                this.images.push(imageData);
+
+                // Create card with drop animation
+                const card = this.createSlideCard(imageData);
+                card.classList.add('dropping');
+
+                // Insert at a visible position (near the end of carousel)
+                this.carousel.appendChild(card);
+
+                // Mark as displayed after drop animation
+                setTimeout(async () => {
+                    card.classList.remove('dropping');
+                    await this.markAsDisplayed(imageData.id);
+                    this.displayedImageIds.add(imageData.id);
+                }, 1500);
+            }
+
+            async markAsDisplayed(imageId) {
+                try {
+                    await fetch('/api/images/displayed', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ id: imageId }),
+                    });
+                } catch (error) {
+                    console.error('Error marking image as displayed:', error);
+                }
+            }
+
+            async scrollCarousel() {
+                const cards = this.carousel.querySelectorAll('.slide-card');
+                if (cards.length === 0) return;
+
+                // Check if we need to add more images to the right
+                if (this.carousel.children.length <= this.visibleCount + 2) {
+                    await this.fetchImages();
+                    const currentIds = new Set(
+                        Array.from(this.carousel.children).map(c => c.dataset.imageId)
+                    );
+                    // Only add is_new=false images to the normal flow
+                    const imagesToAdd = this.images.filter(
+                        img => !img.is_new && !currentIds.has(img.id.toString())
+                    );
+
+                    imagesToAdd.forEach(img => {
+                        const card = this.createSlideCard(img);
+                        // Start from right, invisible
+                        card.style.transform = 'translateX(100%) scale(0.5)';
+                        card.style.opacity = '0';
+                        this.carousel.appendChild(card);
+
+                        // Smoothly slide in from right
+                        setTimeout(() => {
+                            card.style.transition = 'transform 0.8s ease-in-out, opacity 0.8s ease-in-out';
+                            card.style.transform = '';
+                            card.style.opacity = '';
+                        }, 50);
+                    });
+                }
+
+                // Get the first card
+                const firstCard = cards[0];
+                const imageId = firstCard.dataset.imageId;
+
+                // Smoothly slide out to the left
+                firstCard.style.transition = 'transform 0.8s ease-in-out, opacity 0.8s ease-in-out';
+                firstCard.style.transform = 'translateX(-150%) scale(0.5)';
+                firstCard.style.opacity = '0';
+
+                setTimeout(() => {
+                    firstCard.remove();
+
+                    // Mark as displayed if not already
+                    if (!this.displayedImageIds.has(imageId)) {
+                        this.markAsDisplayed(imageId);
+                        this.displayedImageIds.add(imageId);
+                    }
+
+                    // Update scales for remaining cards
+                    this.updateCardScales();
+                }, 800);
+            }
+
+            startAutoScroll() {
+                if (this.isPlaying) return;
+
+                this.isPlaying = true;
+
+                // Initial scale update
+                this.updateCardScales();
+
+                // Update scales on window resize
+                window.addEventListener('resize', () => this.updateCardScales());
+
+                // Auto scroll
+                this.interval = setInterval(() => {
+                    this.scrollCarousel();
+                }, this.scrollInterval);
+            }
+
+            stopAutoScroll() {
+                if (this.interval) {
+                    clearInterval(this.interval);
+                    this.interval = null;
+                }
+                this.isPlaying = false;
+            }
+        }
+
+        // Initialize slideshow when page loads
+        const slideshow = new CarouselSlideshow();
+        window.addEventListener('DOMContentLoaded', () => {
+            slideshow.init();
+        });
+    </script>
+</body>
+</html>
