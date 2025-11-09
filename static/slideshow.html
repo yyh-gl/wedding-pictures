@@ -27,6 +27,19 @@
             overflow: hidden;
         }
 
+        #new-image-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            z-index: 100;
+        }
+
         #carousel {
             display: flex;
             align-items: center;
@@ -55,7 +68,13 @@
         }
 
         .slide-card.dropping {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            margin-left: -200px;
+            margin-top: -300px;
             animation: dropIn 1.5s ease-out forwards;
+            z-index: 101;
         }
 
         @keyframes dropIn {
@@ -64,14 +83,14 @@
                 opacity: 0;
             }
             60% {
-                transform: translateY(20px) scale(1.05) rotate(-5deg);
+                transform: translateY(20px) scale(1.2) rotate(-5deg);
                 opacity: 1;
             }
             80% {
-                transform: translateY(-10px) scale(0.98) rotate(2deg);
+                transform: translateY(-10px) scale(1.15) rotate(2deg);
             }
             100% {
-                transform: translateY(0) scale(1) rotate(0deg);
+                transform: translateY(0) scale(1.2) rotate(0deg);
                 opacity: 1;
             }
         }
@@ -109,6 +128,7 @@
     <div id="loading">画像を読み込んでいます...</div>
     <div id="slideshow-container">
         <div id="carousel"></div>
+        <div id="new-image-overlay"></div>
     </div>
 
     <script>
@@ -116,6 +136,7 @@
             constructor() {
                 this.container = document.getElementById('slideshow-container');
                 this.carousel = document.getElementById('carousel');
+                this.overlay = document.getElementById('new-image-overlay');
                 this.statusEl = document.getElementById('status');
                 this.loadingEl = document.getElementById('loading');
                 this.images = [];
@@ -123,7 +144,7 @@
                 this.scrollInterval = 3000; // Scroll every 3 seconds
                 this.fetchInterval = 10000; // Check for new images every 10 seconds
                 this.isPlaying = false;
-                this.visibleCount = 3; // Number of images visible at once
+                this.visibleCount = 5; // Number of images visible at once
             }
 
             async init() {
@@ -243,16 +264,33 @@
                 // Add to images array
                 this.images.push(imageData);
 
-                // Create card with drop animation
+                // Create card with drop animation in overlay layer
                 const card = this.createSlideCard(imageData);
                 card.classList.add('dropping');
 
-                // Insert at a visible position (near the end of carousel)
-                this.carousel.appendChild(card);
+                // Insert into overlay (front layer)
+                this.overlay.appendChild(card);
 
-                // Mark as displayed after drop animation
+                // After drop animation completes, move to carousel
                 setTimeout(async () => {
                     card.classList.remove('dropping');
+
+                    // Fade out from overlay
+                    card.style.transition = 'opacity 0.5s ease-out';
+                    card.style.opacity = '0';
+
+                    setTimeout(() => {
+                        // Remove from overlay
+                        card.remove();
+
+                        // Add to carousel at the end
+                        const carouselCard = this.createSlideCard(imageData);
+                        this.carousel.appendChild(carouselCard);
+
+                        // Update scales
+                        this.updateCardScales();
+                    }, 500);
+
                     await this.markAsDisplayed(imageData.id);
                     this.displayedImageIds.add(imageData.id);
                 }, 1500);
