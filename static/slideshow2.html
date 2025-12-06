@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wedding Pictures Slideshow</title>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/css/splide.min.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: #000;
+      font-family: Arial, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 1rem;
+    }
+
+    #status {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #fff;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 14px;
+      z-index: 1000;
+    }
+
+    #loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff;
+      font-size: 24px;
+      z-index: 1000;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .splide__slide img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    #main-slider {
+      flex: 1;
+      margin-bottom: 1rem;
+      min-height: 0;
+    }
+
+    #thumbnail-slider {
+      height: 100px;
+      flex-shrink: 0;
+    }
+
+    .splide__slide {
+      opacity: 0.6;
+    }
+
+    .splide__slide.is-active {
+      opacity: 1;
+    }
+
+    #new-image-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 2000;
+    }
+
+    .dropping-image {
+      position: absolute;
+      left: 50%;
+      top: 0;
+      width: 320px;
+      height: 480px;
+      margin-left: -160px;
+      animation: dropIn 1.5s ease-out forwards;
+      z-index: 2001;
+    }
+
+    .dropping-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(255, 255, 255, 0.3);
+    }
+
+    @keyframes dropIn {
+      0% {
+        transform: translateY(-150vh) scale(0.5) rotate(15deg);
+        opacity: 0;
+      }
+      60% {
+        transform: translateY(calc(50vh - 240px)) scale(1.2) rotate(-5deg);
+        opacity: 1;
+      }
+      80% {
+        transform: translateY(calc(50vh - 250px)) scale(1.15) rotate(2deg);
+      }
+      100% {
+        transform: translateY(calc(50vh - 240px)) scale(1.2) rotate(0deg);
+        opacity: 1;
+      }
+    }
+  </style>
+</head>
+<body>
+<div id="status">Loading...</div>
+<div id="loading">画像を読み込んでいます...</div>
+
+<div id="main-slider" class="splide">
+  <div class="splide__track">
+    <ul class="splide__list"></ul>
+  </div>
+</div>
+
+<div id="thumbnail-slider" class="splide">
+  <div class="splide__track">
+    <ul class="splide__list"></ul>
+  </div>
+</div>
+
+<div id="new-image-overlay"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
+<script>
+  class SplideSlideshow {
+    constructor() {
+      this.statusEl = document.getElementById('status');
+      this.loadingEl = document.getElementById('loading');
+      this.overlay = document.getElementById('new-image-overlay');
+      this.images = [];
+      this.displayedImageIds = new Set();
+      this.fetchInterval = 10000;
+      this.mainSlider = null;
+      this.thumbnailSlider = null;
+    }
+
+    async init() {
+      await this.fetchImages();
+      if (this.images.length > 0) {
+        this.loadingEl.classList.add('hidden');
+        this.renderSliders();
+        this.initSliders();
+        setInterval(() => this.checkForNewImages(), this.fetchInterval);
+      } else {
+        this.statusEl.textContent = '画像がありません';
+        setTimeout(() => this.init(), this.fetchInterval);
+      }
+    }
+
+    async fetchImages() {
+      try {
+        const response = await fetch('/api/images');
+        if (!response.ok) {
+          throw new Error('Failed to fetch images');
+        }
+        // const newImages = await response.json();
+        this.images = await response.json();
+
+        if (newImages && newImages.length > 0) {
+          // this.images = newImages.filter(img => !img.is_new);
+          this.statusEl.textContent = `${newImages.length}枚の画像`;
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('Error fetching images:', error);
+        this.statusEl.textContent = 'エラーが発生しました';
+        return false;
+      }
+    }
+
+    async checkForNewImages() {
+      try {
+        const response = await fetch('/api/images');
+        if (!response.ok) return;
+
+        const fetchedImages = await response.json();
+        if (!fetchedImages || fetchedImages.length === 0) return;
+
+        const newImages = fetchedImages.filter(img =>
+          img.is_new && !this.displayedImageIds.has(img.id)
+        );
+
+        if (newImages.length > 0) {
+          console.log(`Found ${newImages.length} new images`);
+          for (const newImage of newImages) {
+            await this.addNewImage(newImage);
+          }
+          this.statusEl.textContent = `${fetchedImages.length}枚の画像`;
+        }
+      } catch (error) {
+        console.error('Error checking for new images:', error);
+      }
+    }
+
+    createSlide(imageData) {
+      const li = document.createElement('li');
+      li.className = 'splide__slide';
+      li.dataset.imageId = imageData.id;
+
+      const img = document.createElement('img');
+      img.src = imageData.file_url;
+      img.alt = 'Wedding Picture';
+
+      li.appendChild(img);
+      return li;
+    }
+
+    renderSliders() {
+      const mainList = document.querySelector('#main-slider .splide__list');
+      const thumbnailList = document.querySelector('#thumbnail-slider .splide__list');
+
+      mainList.innerHTML = '';
+      thumbnailList.innerHTML = '';
+
+      this.images.forEach(imageData => {
+        const mainSlide = this.createSlide(imageData);
+        const thumbSlide = this.createSlide(imageData);
+
+        mainList.appendChild(mainSlide);
+        thumbnailList.appendChild(thumbSlide);
+      });
+    }
+
+    initSliders() {
+      this.mainSlider = new Splide('#main-slider', {
+        type: 'fade',
+        height: '70vh',
+        pagination: false,
+        arrows: false,
+        cover: false,
+        autoplay: true,
+        interval: 3000,
+        rewind: true,
+      });
+
+      this.thumbnailSlider = new Splide('#thumbnail-slider', {
+        rewind: true,
+        fixedWidth: 104,
+        fixedHeight: 58,
+        isNavigation: true,
+        gap: 10,
+        focus: 'center',
+        pagination: false,
+        cover: true,
+        dragMinThreshold: {
+          mouse: 4,
+          touch: 10,
+        },
+        breakpoints: {
+          640: {
+            fixedWidth: 66,
+            fixedHeight: 38,
+          },
+        },
+      });
+
+      this.mainSlider.sync(this.thumbnailSlider);
+      this.mainSlider.mount();
+      this.thumbnailSlider.mount();
+
+      this.mainSlider.on('moved', (newIndex) => {
+        const slides = document.querySelectorAll('#main-slider .splide__slide');
+        if (slides[newIndex]) {
+          const imageId = slides[newIndex].dataset.imageId;
+          if (!this.displayedImageIds.has(imageId)) {
+            this.markAsDisplayed(imageId);
+            this.displayedImageIds.add(imageId);
+          }
+        }
+      });
+    }
+
+    async addNewImage(imageData) {
+      this.images.push(imageData);
+
+      // Create dropping animation element
+      const droppingDiv = document.createElement('div');
+      droppingDiv.className = 'dropping-image';
+
+      const img = document.createElement('img');
+      img.src = imageData.file_url;
+      img.alt = 'Wedding Picture';
+
+      droppingDiv.appendChild(img);
+      this.overlay.appendChild(droppingDiv);
+
+      // After drop animation completes, add to slider
+      setTimeout(() => {
+        // Fade out dropping image
+        droppingDiv.style.transition = 'opacity 0.5s ease-out';
+        droppingDiv.style.opacity = '0';
+
+        setTimeout(() => {
+          // Remove from overlay
+          droppingDiv.remove();
+
+          // Add to sliders
+          const mainSlide = this.createSlide(imageData);
+          const thumbSlide = this.createSlide(imageData);
+
+          this.mainSlider.add(mainSlide);
+          this.thumbnailSlider.add(thumbSlide);
+        }, 500);
+      }, 1500);
+
+      await this.markAsDisplayed(imageData.id);
+      this.displayedImageIds.add(imageData.id);
+    }
+
+    async markAsDisplayed(imageId) {
+      try {
+        await fetch('/api/images/displayed', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({id: imageId}),
+        });
+      } catch (error) {
+        console.error('Error marking image as displayed:', error);
+      }
+    }
+  }
+
+  const slideshow = new SplideSlideshow();
+  window.addEventListener('DOMContentLoaded', () => {
+    slideshow.init();
+  });
+</script>
+</body>
+</html>

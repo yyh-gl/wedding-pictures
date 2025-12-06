@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wedding Pictures Slideshow - Grid</title>
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/css/splide.min.css">
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/@splidejs/splide-extension-grid@0.4.1/dist/css/splide-extension-grid.min.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background-color: #000;
+      font-family: Arial, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding: 1rem;
+    }
+
+    #status {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      color: #fff;
+      background-color: rgba(0, 0, 0, 0.5);
+      padding: 10px 20px;
+      border-radius: 5px;
+      font-size: 14px;
+      z-index: 1000;
+    }
+
+    #loading {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #fff;
+      font-size: 24px;
+      z-index: 1000;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .splide__slide img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    #main-slider {
+      flex: 1;
+      min-height: 0;
+    }
+  </style>
+</head>
+<body>
+<div id="status">Loading...</div>
+<div id="loading">画像を読み込んでいます...</div>
+
+<div id="main-slider" class="splide">
+  <div class="splide__track">
+    <ul class="splide__list"></ul>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@splidejs/splide@4.1.4/dist/js/splide.min.js"></script>
+<script
+  src="https://cdn.jsdelivr.net/npm/@splidejs/splide-extension-grid@0.4.1/dist/js/splide-extension-grid.min.js"></script>
+<script>
+  class SplideSlideshow {
+    constructor() {
+      this.statusEl = document.getElementById('status');
+      this.loadingEl = document.getElementById('loading');
+      this.images = [];
+      this.displayedImageIds = new Set();
+      this.fetchInterval = 10000;
+      this.mainSlider = null;
+    }
+
+    async init() {
+      await this.fetchImages();
+      if (this.images.length > 0) {
+        this.loadingEl.classList.add('hidden');
+        this.renderSlider();
+        this.initSlider();
+        setInterval(() => this.checkForNewImages(), this.fetchInterval);
+      } else {
+        this.statusEl.textContent = '画像がありません';
+        setTimeout(() => this.init(), this.fetchInterval);
+      }
+    }
+
+    async fetchImages() {
+      try {
+        const response = await fetch('/api/images');
+        if (!response.ok) {
+          throw new Error('Failed to fetch images');
+        }
+        const newImages = await response.json();
+
+        if (newImages && newImages.length > 0) {
+          this.images = newImages.filter(img => !img.is_new);
+          this.statusEl.textContent = `${newImages.length}枚の画像`;
+          return true;
+        }
+        return false;
+      } catch (error) {
+        console.error('Error fetching images:', error);
+        this.statusEl.textContent = 'エラーが発生しました';
+        return false;
+      }
+    }
+
+    async checkForNewImages() {
+      try {
+        const response = await fetch('/api/images');
+        if (!response.ok) return;
+
+        const fetchedImages = await response.json();
+        if (!fetchedImages || fetchedImages.length === 0) return;
+
+        const newImages = fetchedImages.filter(img =>
+          img.is_new && !this.displayedImageIds.has(img.id)
+        );
+
+        if (newImages.length > 0) {
+          console.log(`Found ${newImages.length} new images`);
+          for (const newImage of newImages) {
+            await this.addNewImage(newImage);
+          }
+          this.statusEl.textContent = `${fetchedImages.length}枚の画像`;
+        }
+      } catch (error) {
+        console.error('Error checking for new images:', error);
+      }
+    }
+
+    createSlide(imageData) {
+      const li = document.createElement('li');
+      li.className = 'splide__slide';
+      li.dataset.imageId = imageData.id;
+
+      const img = document.createElement('img');
+      img.src = imageData.file_url;
+      img.alt = 'Wedding Picture';
+
+      li.appendChild(img);
+      return li;
+    }
+
+    renderSlider() {
+      const mainList = document.querySelector('#main-slider .splide__list');
+      mainList.innerHTML = '';
+
+      this.images.forEach(imageData => {
+        const mainSlide = this.createSlide(imageData);
+        mainList.appendChild(mainSlide);
+      });
+    }
+
+    initSlider() {
+      this.mainSlider = new Splide('#main-slider', {
+        type: 'loop',
+        height: '14rem',
+        perPage: 2,
+        perMove: 1,
+        autoplay: true,
+        interval: 3000,
+        pagination: false,
+        arrows: true,
+        grid: {
+          dimensions: [[1, 1], [2, 2], [2, 1], [1, 2], [2, 2], [3, 2]],
+          gap: {
+            row: '6px',
+            col: '6px',
+          },
+        },
+        breakpoints: {
+          640: {
+            height: '8rem',
+            perPage: 1,
+            grid: {
+              dimensions: [[2, 2], [1, 1], [2, 1], [1, 2], [2, 2]],
+            },
+          },
+        },
+      });
+
+      this.mainSlider.mount({Grid: window.splide.Extensions.Grid});
+
+      this.mainSlider.on('moved', (newIndex) => {
+        const slides = document.querySelectorAll('#main-slider .splide__slide');
+        if (slides[newIndex]) {
+          const imageId = slides[newIndex].dataset.imageId;
+          if (!this.displayedImageIds.has(imageId)) {
+            this.markAsDisplayed(imageId);
+            this.displayedImageIds.add(imageId);
+          }
+        }
+      });
+    }
+
+    async addNewImage(imageData) {
+      this.images.push(imageData);
+      const mainSlide = this.createSlide(imageData);
+      this.mainSlider.add(mainSlide);
+      await this.markAsDisplayed(imageData.id);
+      this.displayedImageIds.add(imageData.id);
+    }
+
+    async markAsDisplayed(imageId) {
+      try {
+        await fetch('/api/images/displayed', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({id: imageId}),
+        });
+      } catch (error) {
+        console.error('Error marking image as displayed:', error);
+      }
+    }
+  }
+
+  const slideshow = new SplideSlideshow();
+  window.addEventListener('DOMContentLoaded', () => {
+    slideshow.init();
+  });
+</script>
+</body>
+</html>

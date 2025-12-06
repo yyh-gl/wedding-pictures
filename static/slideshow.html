@@ -27,22 +27,36 @@
             overflow: hidden;
         }
 
+        #new-image-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            z-index: 100;
+        }
+
         #carousel {
             display: flex;
             align-items: center;
-            gap: 30px;
+            gap: 20px;
             transition: transform 0.8s ease-in-out;
+            will-change: transform;
         }
 
         .slide-card {
             position: relative;
             flex-shrink: 0;
-            width: 400px;
-            height: 600px;
+            width: 320px;
+            height: 480px;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: transform 0.8s ease-in-out, opacity 0.8s ease-in-out;
+            transition: transform 0.3s ease-out, opacity 0.3s ease-out;
             transform-origin: center;
         }
 
@@ -55,7 +69,13 @@
         }
 
         .slide-card.dropping {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            margin-left: -160px;
+            margin-top: -240px;
             animation: dropIn 1.5s ease-out forwards;
+            z-index: 101;
         }
 
         @keyframes dropIn {
@@ -64,14 +84,14 @@
                 opacity: 0;
             }
             60% {
-                transform: translateY(20px) scale(1.05) rotate(-5deg);
+                transform: translateY(20px) scale(1.2) rotate(-5deg);
                 opacity: 1;
             }
             80% {
-                transform: translateY(-10px) scale(0.98) rotate(2deg);
+                transform: translateY(-10px) scale(1.15) rotate(2deg);
             }
             100% {
-                transform: translateY(0) scale(1) rotate(0deg);
+                transform: translateY(0) scale(1.2) rotate(0deg);
                 opacity: 1;
             }
         }
@@ -109,6 +129,7 @@
     <div id="loading">画像を読み込んでいます...</div>
     <div id="slideshow-container">
         <div id="carousel"></div>
+        <div id="new-image-overlay"></div>
     </div>
 
     <script>
@@ -116,6 +137,7 @@
             constructor() {
                 this.container = document.getElementById('slideshow-container');
                 this.carousel = document.getElementById('carousel');
+                this.overlay = document.getElementById('new-image-overlay');
                 this.statusEl = document.getElementById('status');
                 this.loadingEl = document.getElementById('loading');
                 this.images = [];
@@ -123,7 +145,10 @@
                 this.scrollInterval = 3000; // Scroll every 3 seconds
                 this.fetchInterval = 10000; // Check for new images every 10 seconds
                 this.isPlaying = false;
-                this.visibleCount = 3; // Number of images visible at once
+                this.visibleCount = 5; // Number of images visible at once
+                this.currentOffset = 0; // Track carousel position
+                this.cardWidth = 320; // Card width + gap
+                this.cardGap = 20;
             }
 
             async init() {
@@ -207,8 +232,11 @@
             renderCarousel() {
                 this.carousel.innerHTML = '';
 
-                // Render only is_new=false images
-                this.images.filter(img => !img.is_new).forEach(imageData => {
+                // Render only is_new=false images, ensure at least visibleCount + 3 images
+                const normalImages = this.images.filter(img => !img.is_new);
+                const imagesToRender = normalImages.slice(0, Math.max(normalImages.length, this.visibleCount + 3));
+
+                imagesToRender.forEach(imageData => {
                     const card = this.createSlideCard(imageData);
                     this.carousel.appendChild(card);
                 });
@@ -243,16 +271,33 @@
                 // Add to images array
                 this.images.push(imageData);
 
-                // Create card with drop animation
+                // Create card with drop animation in overlay layer
                 const card = this.createSlideCard(imageData);
                 card.classList.add('dropping');
 
-                // Insert at a visible position (near the end of carousel)
-                this.carousel.appendChild(card);
+                // Insert into overlay (front layer)
+                this.overlay.appendChild(card);
 
-                // Mark as displayed after drop animation
+                // After drop animation completes, move to carousel
                 setTimeout(async () => {
                     card.classList.remove('dropping');
+
+                    // Fade out from overlay
+                    card.style.transition = 'opacity 0.5s ease-out';
+                    card.style.opacity = '0';
+
+                    setTimeout(() => {
+                        // Remove from overlay
+                        card.remove();
+
+                        // Add to carousel at the end
+                        const carouselCard = this.createSlideCard(imageData);
+                        this.carousel.appendChild(carouselCard);
+
+                        // Update scales
+                        this.updateCardScales();
+                    }, 500);
+
                     await this.markAsDisplayed(imageData.id);
                     this.displayedImageIds.add(imageData.id);
                 }, 1500);
@@ -277,7 +322,7 @@
                 if (cards.length === 0) return;
 
                 // Check if we need to add more images to the right
-                if (this.carousel.children.length <= this.visibleCount + 2) {
+                if (this.carousel.children.length < this.visibleCount + 3) {
                     await this.fetchImages();
                     const currentIds = new Set(
                         Array.from(this.carousel.children).map(c => c.dataset.imageId)
@@ -289,31 +334,29 @@
 
                     imagesToAdd.forEach(img => {
                         const card = this.createSlideCard(img);
-                        // Start from right, invisible
-                        card.style.transform = 'translateX(100%) scale(0.5)';
-                        card.style.opacity = '0';
                         this.carousel.appendChild(card);
-
-                        // Smoothly slide in from right
-                        setTimeout(() => {
-                            card.style.transition = 'transform 0.8s ease-in-out, opacity 0.8s ease-in-out';
-                            card.style.transform = '';
-                            card.style.opacity = '';
-                        }, 50);
                     });
                 }
 
-                // Get the first card
+                // Move carousel to the left by one card width
+                this.currentOffset -= (this.cardWidth + this.cardGap);
+                this.carousel.style.transform = `translateX(${this.currentOffset}px)`;
+
+                // Get the first card for marking as displayed
                 const firstCard = cards[0];
                 const imageId = firstCard.dataset.imageId;
 
-                // Smoothly slide out to the left
-                firstCard.style.transition = 'transform 0.8s ease-in-out, opacity 0.8s ease-in-out';
-                firstCard.style.transform = 'translateX(-150%) scale(0.5)';
-                firstCard.style.opacity = '0';
-
+                // After transition completes, remove the first card and reset position
                 setTimeout(() => {
+                    // Remove transition temporarily
+                    this.carousel.style.transition = 'none';
+
+                    // Remove first card
                     firstCard.remove();
+
+                    // Reset offset
+                    this.currentOffset += (this.cardWidth + this.cardGap);
+                    this.carousel.style.transform = `translateX(${this.currentOffset}px)`;
 
                     // Mark as displayed if not already
                     if (!this.displayedImageIds.has(imageId)) {
@@ -321,8 +364,13 @@
                         this.displayedImageIds.add(imageId);
                     }
 
-                    // Update scales for remaining cards
-                    this.updateCardScales();
+                    // Re-enable transition after a brief moment
+                    requestAnimationFrame(() => {
+                        this.carousel.style.transition = 'transform 0.8s ease-in-out';
+
+                        // Update scales for remaining cards
+                        this.updateCardScales();
+                    });
                 }, 800);
             }
 
