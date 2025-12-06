@@ -85,15 +85,18 @@ func (h *WebhookHandler) handleMessageEvent(e webhook.MessageEvent) {
 
 	case webhook.ImageMessageContent:
 		log.Printf("ImageMessage - ID: %s", msg.Id)
-		h.handleImageMessage(e.ReplyToken, msg.Id)
+		h.handleImageMessage(e.ReplyToken, msg.Id, e.Source)
 
 	default:
 		log.Printf("Unhandled message type: %T", msg)
 	}
 }
 
-func (h *WebhookHandler) handleImageMessage(replyToken, messageID string) {
+func (h *WebhookHandler) handleImageMessage(replyToken, messageID string, source webhook.SourceInterface) {
 	ctx := context.Background()
+
+	// Get uploader name from LINE profile
+	uploaderName := h.getUploaderName(source)
 
 	// Get image content from LINE using blob API
 	blobAPI, err := messaging_api.NewMessagingApiBlobAPI(h.channelToken)
@@ -130,11 +133,12 @@ func (h *WebhookHandler) handleImageMessage(replyToken, messageID string) {
 
 	// Save to database
 	image := map[string]interface{}{
-		"s3_key":       imageFile.Key,
-		"file_url":     imageFile.URL,
-		"uploaded_at":  imageFile.UploadedAt,
-		"is_new":       true,
-		"is_displayed": false,
+		"s3_key":        imageFile.Key,
+		"file_url":      imageFile.URL,
+		"uploaded_at":   imageFile.UploadedAt,
+		"is_new":        true,
+		"is_displayed":  false,
+		"uploader_name": uploaderName,
 	}
 
 	_, _, err = db.GetSupabaseClient().
@@ -147,8 +151,37 @@ func (h *WebhookHandler) handleImageMessage(replyToken, messageID string) {
 		return
 	}
 
-	log.Printf("Image uploaded successfully: %s (S3 Key: %s)", imageFile.Name, imageFile.Key)
+	log.Printf("Image uploaded successfully: %s (S3 Key: %s, Uploader: %s)", imageFile.Name, imageFile.Key, uploaderName)
 	h.replyText(replyToken, "写真をアップロードしました!")
+}
+
+func (h *WebhookHandler) getUploaderName(source webhook.SourceInterface) string {
+	switch s := source.(type) {
+	case webhook.UserSource:
+		profile, err := h.client.GetProfile(s.UserId)
+		if err != nil {
+			log.Printf("failed to get user profile: %v", err)
+			return "Unknown"
+		}
+		return profile.DisplayName
+	case webhook.GroupSource:
+		profile, err := h.client.GetGroupMemberProfile(s.GroupId, s.UserId)
+		if err != nil {
+			log.Printf("failed to get group member profile: %v", err)
+			return "Unknown"
+		}
+		return profile.DisplayName
+	case webhook.RoomSource:
+		profile, err := h.client.GetRoomMemberProfile(s.RoomId, s.UserId)
+		if err != nil {
+			log.Printf("failed to get room member profile: %v", err)
+			return "Unknown"
+		}
+		return profile.DisplayName
+	default:
+		log.Printf("unknown source type: %T", source)
+		return "Unknown"
+	}
 }
 
 func (h *WebhookHandler) replyText(replyToken, text string) {
